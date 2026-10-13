@@ -489,6 +489,15 @@
   ];
 
   function detectLang() {
+    // ?lang=xx deep link wins and is remembered (also handy for automation)
+    try {
+      const q = new URLSearchParams(location.search).get("lang");
+      if (q && I18N[q]) {
+        try { localStorage.setItem("ma_lang", q); } catch (e) {}
+        history.replaceState(null, "", location.pathname);
+        return q;
+      }
+    } catch (e) {}
     let s = null;
     try { s = localStorage.getItem("ma_lang"); } catch (e) {}
     if (s && I18N[s]) return s;

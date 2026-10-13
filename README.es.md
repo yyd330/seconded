@@ -4,11 +4,11 @@
 
 Un asistente de reuniones **basado en web** totalmente local: captura audio desde cualquier dispositivo en el navegador (o sube una grabación), obtén subtítulos en vivo en una página web y recibe una **transcripción con identificación de hablantes + resumen IA** en el idioma de la reunión. Sin servicios en la nube — el reconocimiento de voz (ASR) se ejecuta localmente en CPU y el resumen lo genera tu propio LLM local (cualquier API compatible con OpenAI).
 
-![Seconded — grabar en directo o subir una grabación](docs/screenshot-main.png)
+![Seconded — grabar en directo o subir una grabación](docs/screenshot-main-es.png)
 
 Elige una plantilla de resumen por tipo de reunión; los resúmenes se muestran con decisiones, responsables y elementos de acción con casillas — y se regeneran con otra plantilla en cualquier momento, sin volver a transcribir:
 
-![Resumen renderizado con decisiones y elementos de acción](docs/screenshot-summary.png)
+![Resumen renderizado con decisiones y elementos de acción](docs/screenshot-summary-es.png)
 
 ## Cómo funciona
 - **Captura:** micrófono del navegador (`getUserMedia`) sobre HTTPS; opcionalmente *micrófono + audio del sistema* mezclados en el navegador mediante pantalla compartida (Chrome 141+). O sube cualquier archivo de audio/vídeo.

@@ -1,4 +1,4 @@
-**English** · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Español](README.es.md)
+[English](README.md) · [简体中文](README.zh-CN.md) · **繁體中文** · [Español](README.es.md)
 
 # Seconded — 每個決定，都有人附議。本地會議轉錄與摘要
 

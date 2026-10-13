@@ -1,0 +1,38 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start server with ...
+        2. Open UI, click ...
+        3. See error
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Seconded version / commit
+      description: "`git rev-parse --short HEAD`"
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS + browser, ASR backend/model, summary backend/model
+      placeholder: Ubuntu 24.04, Chrome 141; qwen/Qwen3-ASR-1.7B (cpu); LM Studio qwen3-14b
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Server output / browser console errors (paste as text, not screenshots).
+      render: shell

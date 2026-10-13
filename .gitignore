@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+certs/
+.venv/
+
+# Big local artifacts (not part of the project)
+c2wheels/
+ctranslate2-rocm.zip
+models/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

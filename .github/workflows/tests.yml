@@ -1,0 +1,24 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install minimal deps (unit tests need no ML models)
+        run: pip install flask requests numpy soundfile
+      - name: Unit tests (no models required)
+        run: |
+          python tests/test_auth.py
+          python tests/test_summarize.py
+      - name: Syntax check
+        run: |
+          python -m py_compile server.py summarize.py asr_engine.py report.py diarize.py

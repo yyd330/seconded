@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<!--
+  Seconded — local meeting transcription & summarization
+  Copyright (C) 2026 Seconded contributors
+
+  This program is free software: you can redistribute it and/or modify it under
+  the terms of the GNU Affero General Public License as published by the Free
+  Software Foundation, either version 3 of the License, or (at your option) any
+  later version.
+
+  This program is distributed in the hope that it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+  FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+  details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program. If not, see <https://www.gnu.org/licenses/>.
+-->
+
+
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seconded</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+<style>
+  :root {
+    --bg:#0b0e14; --panel:#131826; --panel2:#1a2133; --line:#252d42;
+    --fg:#e7ecf5; --dim:#8b96ad; --accent:#5b8cff; --accent2:#7c5bff;
+    --green:#3ddc84; --amber:#ffb454; --red:#ff5d5d;
+    --radius:14px;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:radial-gradient(1200px 600px at 80% -10%, #17203a 0%, var(--bg) 55%);
+         color:var(--fg); font:15px/1.55 -apple-system,"Segoe UI",Roboto,"Noto Sans SC",sans-serif; height:100vh; overflow:hidden; }
+  a { color:var(--accent); }
+
+  /* ---------- layout: sidebar + main ---------- */
+  .app { display:flex; height:100%; }
+
+  /* sidebar */
+  .sidebar { width:320px; background:var(--panel); border-right:1px solid var(--line); display:flex; flex-direction:column; flex:none; }
+  .sidebar-header { display:flex; align-items:center; gap:12px; padding:16px 18px 14px; border-bottom:1px solid var(--line); }
+  .sidebar .logo { width:34px; height:34px; border-radius:10px; flex:none;
+          background:linear-gradient(135deg,var(--accent),var(--accent2)); display:flex; align-items:center; justify-content:center; font-size:17px; }
+  .sidebar h1 { font-size:15px; margin:0; font-weight:700; }
+  .sidebar h1 small { font-size:11px; color:var(--dim); font-weight:400; display:block; margin-top:2px;
+    max-width:230px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .new-session-btn { margin:14px 16px; padding:10px 16px; font-size:14px; font-weight:600;
+    background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff; border:none;
+    border-radius:10px; cursor:pointer; transition:.15s; }
+  .new-session-btn:hover { filter:brightness(1.12); }
+  .sess-filter { margin:0 16px 8px; padding:8px 12px; font-size:13px; background:var(--panel2);
+    color:var(--fg); border:1px solid var(--line); border-radius:10px; width:calc(100% - 32px); }
+  .sess-filter:focus { outline:none; border-color:var(--accent); }
+  .session-list { flex:1; overflow-y:auto; padding:8px 10px; }
+  .session-item { padding:12px 14px; border-radius:10px; cursor:pointer; margin-bottom:6px; transition:.15s;
+    border:1px solid transparent; position:relative; }
+  .session-item:hover { background:#1e2434; }
+  .session-item.active { background:#20283d; border-color:#3a4668; }
+  .session-item .name { font-weight:600; font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    padding-right:44px; }
+  .session-item .meta { font-size:11.5px; color:var(--dim); margin-top:3px; display:flex; gap:8px; }
+  .sess-actions { position:absolute; right:8px; top:9px; display:none; gap:2px; }
+  .session-item:hover .sess-actions { display:flex; }
+  .sess-actions button { background:transparent; border:none; padding:2px 5px; font-size:13px; opacity:.6; }
+  .sess-actions button:hover { opacity:1; border-color:transparent; }
+  .badge { font-size:10.5px; padding:2px 7px; border-radius:99px; background:#1d3a2a; color:var(--green); font-weight:600; }
+  .badge.current { background:#1a2d4a; color:var(--accent); }
+  .lang-row { display:flex; align-items:center; gap:8px; padding:10px 16px; border-top:1px solid var(--line); flex:none; }
+  .lang-row .lang-ico { font-size:14px; opacity:.7; }
+  .lang-row select { flex:1; background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+    border-radius:8px; padding:6px 8px; font-size:12.5px; cursor:pointer; }
+
+  /* main content area */
+  .main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+
+  /* big status banner */
+  #banner { margin:18px 22px 0; border-radius:var(--radius); padding:16px 20px; display:flex; align-items:center; gap:16px;
+            background:var(--panel); border:1px solid var(--line); transition:.3s; flex:none; }
+  #banner .phase { font-size:15px; font-weight:700; min-width:150px; }
+  #banner .msg { color:var(--dim); font-size:14px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #banner .timer { font-variant-numeric:tabular-nums; font-size:20px; font-weight:700; letter-spacing:.5px; }
+  #banner.recording { border-color:#1f4d38; background:linear-gradient(90deg,#12261c, var(--panel)); }
+  #banner.recording .phase { color:var(--green); }
+  #banner.processing { border-color:#5a4a1e; background:linear-gradient(90deg,#2a2312, var(--panel)); }
+  #banner.processing .phase { color:var(--amber); }
+  #banner.error { border-color:#5a2626; background:linear-gradient(90deg,#2a1414, var(--panel)); }
+  #banner.error .phase { color:var(--red); }
+  #banner.done { border-color:#27436e; background:linear-gradient(90deg,#15233c, var(--panel)); }
+  #banner.done .phase { color:var(--accent); }
+  .pulse { width:12px; height:12px; border-radius:50%; flex:none; background:#4a5570; }
+  .recording .pulse { background:var(--green); box-shadow:0 0 0 0 rgba(61,220,132,.6); animation:pulse 1.4s infinite; }
+  @keyframes pulse { 70%{box-shadow:0 0 0 12px rgba(61,220,132,0);} 100%{box-shadow:0 0 0 0 rgba(61,220,132,0);} }
+  .processing .pulse { background:var(--amber); animation:pulse 1.4s infinite; }
+
+  .main-content { flex:1; overflow-y:auto; padding:18px 22px 60px; }
+
+  /* cards */
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:18px 20px; margin-bottom:16px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:1.2px; color:var(--dim); margin:0 0 14px; font-weight:700; }
+  .card h3 { font-size:13px; text-transform:uppercase; letter-spacing:1.2px; color:var(--dim); margin:0 0 14px; font-weight:700; }
+
+  /* controls */
+  .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  select#micdev, input#sessname { background:var(--panel2); color:var(--fg); border:1px solid var(--line); border-radius:10px;
+           padding:10px 12px; font-size:14px; }
+  input#sessname { width:230px; }
+  button, a.btn { background:var(--panel2); color:var(--fg); border:1px solid var(--line); border-radius:10px;
+           padding:10px 18px; font-size:14px; font-weight:600; cursor:pointer; text-decoration:none; display:inline-block; transition:.15s; }
+  button:hover, a.btn:hover { border-color:var(--accent); }
+  .primary { background:linear-gradient(135deg,var(--accent),var(--accent2)); border:none; color:#fff; }
+  .primary:hover { filter:brightness(1.12); }
+  .danger { background:#3a1d1d; border-color:#6e3434; }
+  .ghost { background:transparent; }
+  #meter { font-size:15px; color:var(--green); min-width:170px; letter-spacing:2px; }
+
+  /* transcript */
+  #livebox { border-left:3px solid var(--accent); padding:10px 14px; background:var(--panel2);
+             border-radius:0 10px 10px 0; margin-bottom:16px; min-height:56px; }
+  #livebox .lbl { font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--dim); margin-bottom:4px; }
+  #livetext { color:#a9c0e8; }
+  .line { display:flex; gap:14px; padding:10px 6px; border-radius:10px; animation:fadein .3s ease; }
+  .line:hover { background:var(--panel2); }
+  @keyframes fadein { from{opacity:0; transform:translateY(5px);} to{opacity:1;} }
+  .who { min-width:104px; text-align:right; font-weight:700; font-size:13px; padding-top:2px; flex:none; }
+  .txt { flex:1; white-space:pre-wrap; word-break:break-word; }
+  .ts { color:var(--dim); font-size:11.5px; display:block; margin-bottom:2px; font-variant-numeric:tabular-nums; }
+  .empty { color:var(--dim); text-align:center; padding:60px 0; font-size:14.5px; }
+  #lines { max-height:600px; overflow-y:auto; }
+  #lines::-webkit-scrollbar { width:6px; }
+  #lines::-webkit-scrollbar-track { background:transparent; }
+  #lines::-webkit-scrollbar-thumb { background:var(--line); border-radius:3px; }
+  #lines.collapsed { max-height:180px; }
+  #collapse-btn { display:none; }
+
+  /* downloads */
+  #dlbar { display:flex; gap:18px; flex-wrap:wrap; align-items:center; }
+  .dl-group { display:flex; gap:6px; align-items:center; background:var(--panel2); padding:8px 10px; border-radius:10px; }
+  #dlbar .lbl, .dl-group .lbl { font-size:12.5px; color:var(--dim); margin-right:4px; font-weight:700; }
+  .dl-mini { display:flex; gap:6px; flex-wrap:wrap; }
+  .dl-mini a { padding:6px 11px; font-size:12.5px; border-radius:8px; background:var(--panel2); border:1px solid var(--line); color:var(--fg); text-decoration:none; }
+  .dl-mini a:hover { border-color:var(--accent); }
+
+  /* history table (legacy, hidden now) */
+  .hist-sub { color:var(--dim); font-size:12.5px; margin-top:2px; }
+
+  /* modal (view past session) */
+  #modal { position:fixed; inset:0; background:rgba(5,8,14,.7); backdrop-filter:blur(4px); display:none; z-index:50; padding:4vh 3vw; }
+  #modal.open { display:block; }
+  .modal-box { background:var(--panel); border:1px solid var(--line); border-radius:16px; max-width:860px; margin:0 auto;
+               height:92vh; overflow:auto; padding:24px 28px; }
+  .modal-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; }
+  .modal-head h3 { margin:0; font-size:17px; }
+
+  /* rendered summary markdown inside the modal */
+  .md { background:var(--panel2); padding:16px 18px; border-radius:10px; }
+  .md h2 { font-size:14px; margin:18px 0 8px; color:var(--fg); text-transform:none; letter-spacing:0; }
+  .md h2:first-child { margin-top:0; }
+  .md h3 { font-size:13px; margin:14px 0 6px; color:var(--dim); }
+  .md ul { margin:6px 0; padding-left:20px; }
+  .md li { margin:3px 0; }
+  .md li.task { list-style:none; margin-left:-20px; }
+  .md p { margin:6px 0; }
+  .md hr { border:none; border-top:1px solid var(--line); margin:14px 0; }
+  .upload-prog { height:6px; border-radius:3px; background:var(--panel2); overflow:hidden; margin-top:10px; display:none; }
+  .upload-prog > div { height:100%; width:0; background:linear-gradient(90deg,var(--accent),var(--accent2)); transition:width .2s; }
+
+  /* upload dropzone */
+  .dropzone { border:2px dashed var(--line); border-radius:12px; padding:18px 16px; text-align:center;
+              transition:.15s; display:flex; flex-direction:column; gap:10px; align-items:center; }
+  .dropzone.drag { border-color:var(--accent); background:rgba(91,140,255,.07); }
+  .dz-hint { font-size:12.5px; color:var(--dim); max-width:520px; }
+  .dz-hint b { color:var(--fg); }
+
+  @media (max-width:800px) {
+    .app { flex-direction:column; }
+    .sidebar { width:100%; height:200px; flex:none; }
+    #banner { flex-wrap:wrap; }
+    #banner .phase { min-width:auto; }
+    .who { min-width:80px; }
+    input#sessname { width:150px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">🎙</div>
+      <h1>Seconded <small id="models-sub" data-i18n="models_sub">local ASR + local LLM</small></h1>
+    </div>
+    <button class="new-session-btn" onclick="newSession()" data-i18n="new_session">+ New session</button>
+    <input class="sess-filter" id="sess-filter" placeholder="Filter sessions… ( / )" data-i18n-ph="filter_ph" oninput="renderSidebar()">
+    <div class="session-list" id="sidebar-list">
+      <!-- session items rendered here -->
+    </div>
+    <div class="lang-row">
+      <span class="lang-ico">🌐</span>
+      <select id="langsel" title="Interface language / 界面语言 / Idioma"></select>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <!-- status banner -->
+    <div id="banner">
+      <div class="pulse"></div>
+      <div class="phase" id="phase" data-i18n="phase_idle">Idle</div>
+      <div class="msg" id="status" data-i18n="status_ready">Ready — start a new session or open a past one from the sidebar.</div>
+      <button id="cancelbtn" class="danger" style="display:none" onclick="cancelProcessing()" title="Stop processing and discard this run" data-i18n="stop_discard" data-i18n-title="stop_discard_title">✕ Stop &amp; discard</button>
+      <div class="timer" id="dur"></div>
+    </div>
+
+    <div class="main-content">
+      <!-- NEW / ACTIVE SESSION VIEW -->
+      <div id="view-session">
+        <div class="card" id="perm-banner" style="display:none; border-left:3px solid var(--accent)">
+          🎙 <b data-i18n="perm_b_title">Microphone not allowed yet.</b> <span data-i18n="perm_b_text">Browsers never grant mic access automatically — click below once and choose "Allow". The choice is remembered for this site.</span>
+          &nbsp;<button class="primary" onclick="grantMic()" data-i18n="allow_mic">Allow microphone</button>
+        </div>
+
+        <div class="card">
+          <h2 data-i18n="record_live">Record live</h2>
+          <div class="controls">
+            <input id="sessname" placeholder="Session name (e.g. Weekly sync)" data-i18n-ph="sessname_ph" onblur="saveName()">
+            <select id="micdev" title="Microphone input device" data-i18n-title="mic_title"></select>
+            <button class="primary" onclick="startWithMic()" title="Capture your microphone only" data-i18n="btn_mic">🎙 Mic</button>
+            <button class="primary" onclick="startWithBoth()" title="Your mic + the meeting's audio at the same time" data-i18n="btn_mic_meeting" data-i18n-title="mic_meeting_title">🎙+🔊 Mic &amp; meeting</button>
+          </div>
+          <p class="hint" style="margin:10px 2px 0; font-size:12.5px; color:var(--dim)" data-i18n-html="record_hint_html">
+            "Mic &amp; meeting" opens the screen-share picker — choose <b>Entire screen</b> and tick <i>share computer/tab audio</i>, or pick the meeting tab directly.
+          </p>
+          <div class="controls" style="margin-top:14px">
+            <button class="danger" onclick="endMeeting()" data-i18n="end_summarize">⏹ End &amp; summarize</button>
+            <button class="ghost" onclick="resetSession()" data-i18n="discard_session">↺ Discard current session</button>
+            <button id="addsysbtn" class="ghost" style="display:none" onclick="addMeetingAudio()" data-i18n="add_meeting_audio">＋ Add meeting audio</button>
+            <span id="meter"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 data-i18n="upload_recording">Upload recording</h2>
+          <div class="dropzone" id="dropzone">
+            <label class="btn" id="uplabel" style="cursor:pointer"><span data-i18n="choose_file">📁 Choose audio / video file</span><input type="file" id="upfile" hidden accept="audio/*,video/*,.mp3,.m4a,.wav,.webm,.ogg,.flac,.mkv,.avi,.mov"></label>
+            <span class="dz-hint" data-i18n-html="upload_hint_html">…or drag &amp; drop it here. Uploads always run as their <b>own session</b> — the mic stays untouched.</span>
+          </div>
+          <div class="upload-prog" id="upprog"><div></div></div>
+        </div>
+
+        <div class="card">
+          <h2 data-i18n="summary_settings">Summary settings</h2>
+          <div class="controls">
+            <select id="tplsel" title="Summary template" data-i18n-title="tplsel_title"></select>
+          </div>
+        </div>
+
+        <div class="card" id="active-card">
+          <h2 data-i18n="live_transcript">Live transcript</h2>
+          <div id="livebox"><div class="lbl" data-i18n="live_rolling">Live (rolling window)</div><div id="livetext">—</div></div>
+          <button id="collapse-btn" class="ghost" style="margin-bottom:10px" onclick="toggleCollapse()" data-i18n="collapse">▼ Collapse transcript</button>
+          <div id="lines"><div class="empty" id="empty" data-i18n="empty_transcript">Nothing yet. Start a session with your mic, or upload a recording.</div></div>
+        </div>
+
+        <div class="card" id="dl-card" style="display:none">
+          <h2 data-i18n="downloads">Downloads — this session</h2>
+          <div id="dlbar"></div>
+          <div style="margin-top:14px; display:flex; gap:10px; align-items:center;">
+            <button onclick="regenerateCurrent()" title="Re-run the summary with your current template/length settings" data-i18n="regenerate" data-i18n-title="regenerate_title">↻ Regenerate summary</button>
+            <span id="regen-note" style="font-size:12.5px;color:var(--dim)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- modal for viewing a past session -->
+<div id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="m-title"></h3><button class="ghost" onclick="closeModal()" data-i18n="close">✕ Close</button></div>
+    <div id="m-dlbar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px"></div>
+    <div id="m-body"></div>
+  </div>
+</div>
+
+<script src="static/i18n.js"></script>
+<script src="static/app.js"></script>
+</body>
+</html>

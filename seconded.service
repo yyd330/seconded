@@ -1,0 +1,29 @@
+# Seconded — systemd user service template
+# Install:  mkdir -p ~/.config/systemd/user
+#           sed "s|/PATH/TO/seconded|$HOME/GitHub-Projects/seconded|g" \
+#               seconded.service > ~/.config/systemd/user/seconded.service
+#           systemctl --user daemon-reload && systemctl --user enable --now seconded
+#
+# Optional model/env overrides (uncomment as needed):
+# Environment=ASR_BACKEND=faster-whisper
+# Environment=ASR_MODEL=large-v3
+# Environment=SUMMARY_API_URL=http://127.0.0.1:1234/v1/chat/completions
+# Environment=SUMMARY_MODEL=my-model
+# Environment=MEETINGS_OUTPUT_DIR=~/meetings
+# Environment=SECONDED_TOKEN=change…oken)
+
+[Unit]
+Description=Seconded web server (local ASR transcription + summary)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/PATH/TO/seconded
+ExecStart=/PATH/TO/seconded/.venv/bin/python server.py --https-port 8766
+# Add --no-live to ExecStart to skip live subtitles (saves CPU)
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

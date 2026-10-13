@@ -1,0 +1,27 @@
+# Seconded dependencies (Python 3.12)
+# Install: pip install -r requirements.txt
+
+# Web server
+flask>=3.0
+
+# Summary backend HTTP client
+requests>=2.31
+
+# ASR backends (both optional at runtime — install the one you use)
+#   qwen backend (default):   Qwen3-ASR + ForcedAligner
+#   faster-whisper backend:   any Whisper/CT2 model
+qwen-asr>=0.0.6
+faster-whisper>=1.0
+
+# Speaker diarization (resemblyzer + clustering)
+resemblyzer==0.1.6
+scikit-learn>=1.3
+
+# Audio I/O + resampling
+soundfile>=0.12
+librosa>=0.10
+scipy>=1.10
+numpy>=1.24
+
+# PDF rendering (HTML -> PDF; markdown handled in report.py)
+weasyprint>=60.0

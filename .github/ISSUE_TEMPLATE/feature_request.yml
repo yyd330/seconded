@@ -1,0 +1,19 @@
+name: Feature request
+description: An idea to make Seconded better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: The use case or friction, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: How would you like it to work?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

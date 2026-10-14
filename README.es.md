@@ -13,7 +13,7 @@ Elige una plantilla de resumen por tipo de reunión; los resúmenes se muestran 
 ## Cómo funciona
 - **Captura:** micrófono del navegador (`getUserMedia`) sobre HTTPS; opcionalmente *micrófono + audio del sistema* mezclados en el navegador mediante pantalla compartida (Chrome 141+). O sube cualquier archivo de audio/vídeo.
 - **ASR (intercambiable):** de forma predeterminada **Qwen3-ASR 1.7B** en CPU (~5 GB de RAM, multilingüe, marcas de tiempo por palabra con ForcedAligner) — nunca compite con tu GPU. Backend alternativo: **faster-whisper** (cualquier modelo Whisper/CT2: `large-v3`, `distil-*`, repositorios cuantizados).
-- **Diariización de hablantes:** embeddings de voz resemblyzer + agrupamiento aglomerativo (no crítico; recurre a un solo hablante si falla).
+- **Diariización de hablantes:** embeddings multilingües ECAPA-TDNN de SpeechBrain + agrupamiento con estimación automática del número de hablantes (no crítico; recurre a un solo hablante si falla).
 - **Resumen (intercambiable):** cualquier **API local compatible con OpenAI** (LM Studio, llama.cpp, vLLM, Strata, `/v1` de Ollama, ...). Escrito en el idioma dominante de la reunión (más de 20 idiomas; ver *Idiomas* más abajo).
 
 ## Plataformas y navegadores compatibles
@@ -32,7 +32,7 @@ Notas:
 ## Archivos
 - `server.py` — servidor Flask: subtítulos SSE en vivo, ingesta de audio, subida de archivos (extracción de audio con ffmpeg), pipeline final, descargas por sesión (md/pdf/vtt/wav)
 - `asr_engine.py` — backends ASR intercambiables: `qwen` (Qwen3-ASR + ForcedAligner) y `faster-whisper` (cualquier modelo Whisper/CT2), misma API, elegidos por variable de entorno o bandera
-- `diarize.py` — diariización de hablantes (resemblyzer + agrupamiento sklearn)
+- `diarize.py` — diariización de hablantes (embeddings ECAPA-TDNN + agrupamiento sklearn; `--diar-backend resemblyzer` para una alternativa ligera centrada en inglés)
 - `summarize.py` — generador de resúmenes para cualquier backend compatible con OpenAI: 7 plantillas, detección de idioma y reglas de idioma de salida
 - `report.py` — renderizado Markdown/PDF de transcripción + resumen (fuentes seguras para CJK)
 - `static/index.html` — la interfaz web (tema oscuro): subtítulos en vivo, controles de captura, subidas, historial de sesiones, descargas

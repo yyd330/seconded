@@ -184,6 +184,7 @@ async function viewSession(dir, name){
          ${TPLS.map(t=>`<option value="${t.id}" ${d.template===t.id?'selected':''}>${escapeHtml(I18N.Ttpl(t.id, t.label))}</option>`).join('')}
        </select>
        <button onclick="regenerateHistory('${jsq(dir)}')">${escapeHtml(T('regenerate_short'))}</button>
+       <button onclick="rediarizeHistory('${jsq(dir)}')" title="${escapeHtml(T('rediarize_title'))}">${escapeHtml(T('rediarize_short'))}</button>
      </span>`);
 
   const t = d.timings || {}, mods = d.models || {};
@@ -254,6 +255,13 @@ async function regenerateHistory(dir){
   if(!r.ok){ setStatus(T('regen_failed') + (d.error || r.status)); return; }
   regenWatch = {dir};
   setStatus(T('regen_started'));
+}
+async function rediarizeHistory(dir){
+  const r = await fetch(`/history/${dir}/rediarize`, {method:'POST'});
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok){ setStatus(T('regen_failed') + (d.error || r.status)); return; }
+  regenWatch = {dir};
+  setStatus(T('rediarize_started'));
 }
 function onRegenDone(){
   if (!regenWatch) return;

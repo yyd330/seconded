@@ -20,7 +20,8 @@ checkbox action items — and regenerate with another template anytime, no re-tr
 - **ASR (pluggable):** default **Qwen3-ASR 1.7B** on CPU (~5 GB RAM, multilingual,
   word timestamps via ForcedAligner) — never fights your GPU. Alternative backend:
   **faster-whisper** (any Whisper/CT2 model: `large-v3`, `distil-*`, quantized repos).
-- **Diarization:** resemblyzer speaker embeddings + agglomerative clustering (non-fatal;
+- **Diarization:** SpeechBrain ECAPA-TDNN multilingual speaker embeddings + clustering
+  with automatic speaker-count estimation (non-fatal;
   falls back to a single speaker).
 - **Summary (pluggable):** any **OpenAI-compatible local API** (LM Studio, llama.cpp,
   vLLM, Strata, Ollama's `/v1`, ...). Written in the dominant spoken language
@@ -48,7 +49,8 @@ Notes:
   extraction), final pipeline, per-session downloads (md/pdf/vtt/wav)
 - `asr_engine.py` — pluggable ASR backends: `qwen` (Qwen3-ASR + ForcedAligner) and
   `faster-whisper` (any Whisper/CT2 model), same API, selected by env var or flag
-- `diarize.py` — speaker diarization (resemblyzer + sklearn clustering)
+- `diarize.py` — speaker diarization (ECAPA-TDNN embeddings + sklearn clustering;
+  `--diar-backend resemblyzer` for a lighter English-centric fallback)
 - `summarize.py` — summarizer for any OpenAI-compatible backend: 7 templates,
   language detection & output-language rules
 - `report.py` — Markdown/PDF rendering of transcript + summary (CJK-safe fonts)

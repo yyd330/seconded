@@ -13,7 +13,10 @@ requests>=2.31
 qwen-asr>=0.0.6
 faster-whisper>=1.0
 
-# Speaker diarization (resemblyzer + clustering)
+# Speaker diarization
+#   ecapa backend (default): SpeechBrain ECAPA-TDNN embeddings (multilingual)
+#   resemblyzer backend: lightweight English-centric fallback
+speechbrain>=1.0        # pulls torch; needed for the default ecapa backend
 resemblyzer==0.1.6
 scikit-learn>=1.3
 

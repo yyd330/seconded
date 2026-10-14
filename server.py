@@ -76,6 +76,7 @@ OUTPUT_ROOT = os.path.expanduser(
 # Live-subtitle mode: "final" (default — the configured ASR model does live +
 # final) or None (--no-live).
 LIVE_MODE = "final"
+DIAR_BACKEND = os.environ.get("DIAR_BACKEND", "ecapa")  # ecapa | resemblyzer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s",
                     datefmt="%H:%M:%S")
@@ -370,7 +371,7 @@ def final_pass():
     sse_broadcast("status", {"msg": "diarizing speakers…"})
     t_diar = time.time()
     try:
-        spk_segs = diarize(audio, SR)
+        spk_segs = diarize(audio, SR, backend=DIAR_BACKEND)
         assign_speakers(spk_segs, segs)
     except Exception as e:
         log.exception("diarization failed; using single speaker")
@@ -1112,6 +1113,51 @@ def history_regenerate(dir):
             (jsonify({"ok": False, "error": "another regeneration is already running"}), 409))
 
 
+@app.route("/history/<dir>/rediarize", methods=["POST"])
+def history_rediarize(dir):
+    """Re-run speaker diarization on a PAST session from its saved audio,
+    then regenerate the summary so it sees the new speaker labels."""
+    d = os.path.join(OUTPUT_ROOT, os.path.basename(dir))
+    if not os.path.isdir(d) or not os.path.exists(os.path.join(d, "meta.json")):
+        return jsonify({"error": "session not found"}), 404
+    wav = os.path.join(d, "audio.wav")
+    if not os.path.exists(wav):
+        return jsonify({"error": "no saved audio for this session"}), 404
+    if REGEN_LOCK.locked():
+        return jsonify({"ok": False, "error": "another job is already running"}), 409
+    with REGEN_LOCK:
+        def work():
+            try:
+                sse_broadcast("status", {"msg": "re-running speaker detection…"})
+                audio, _sr = sf.read(wav, dtype="float32")
+                if audio.ndim > 1:
+                    audio = audio.mean(axis=1)
+                t0 = time.time()
+                spk_segs = diarize(audio, SR, backend=DIAR_BACKEND)
+                with open(os.path.join(d, "meta.json")) as f:
+                    meta = json.load(f)
+                segs = [SpeakerSegment(s["start"], s["end"], s["text"])
+                        for s in meta.get("segments", [])]
+                assign_speakers(spk_segs, segs)
+                n_spk = max((s.speaker for s in segs), default=0) + 1
+                meta["speakers"] = n_spk
+                meta["segments"] = [{"start": s.start, "end": s.end, "text": s.text,
+                                     "speaker": s.speaker} for s in segs]
+                meta.setdefault("timings", {})["diarization_s"] = round(time.time() - t0, 1)
+                with open(os.path.join(d, "meta.json"), "w") as f:
+                    json.dump(meta, f, ensure_ascii=False, indent=1)
+                write_outputs(d, meta.get("language", ""), "", None, segs)
+                sse_broadcast("status", {"msg": f"speaker detection done: {n_spk} speakers"})
+            except Exception as e:
+                log.exception("re-diarize failed")
+                sse_broadcast("status", {"msg": f"speaker detection failed: {e}"})
+                return
+            # summary needs the new labels — regenerate it too
+            _regenerate(d, template=meta.get("template"), length=meta.get("length"))
+        threading.Thread(target=work, daemon=True).start()
+    return jsonify({"ok": True}), 202
+
+
 @app.route("/history/<dir>/view")
 def history_view(dir):
     """Return a past session's transcript as JSON for the UI to render."""
@@ -1226,6 +1272,10 @@ if __name__ == "__main__":
                          "browser mic capture from other devices)")
     ap.add_argument("--no-live", action="store_true",
                     help="skip live subtitles entirely; only run the final pass at end")
+    ap.add_argument("--diar-backend", choices=["ecapa", "resemblyzer"],
+                    default=os.environ.get("DIAR_BACKEND", "ecapa"),
+                    help="speaker diarization backend (default: ecapa; env DIAR_BACKEND). "
+                         "resemblyzer is lighter but English-centric and weak on other languages.")
     ap.add_argument("--asr-backend", choices=sorted(set(BACKENDS)),
                     default=os.environ.get("ASR_BACKEND", "qwen"),
                     help="ASR backend (default: qwen; env ASR_BACKEND)")
@@ -1246,6 +1296,8 @@ if __name__ == "__main__":
                     help="require this access token for every request (env SECONDED_TOKEN). "
                          "Unset = no authentication (default; fine on a trusted LAN).")
     args = ap.parse_args()
+
+    DIAR_BACKEND = args.diar_backend  # noqa: PLW0603 — module-level main block
 
     if args.auth_token:
         AUTH_TOKEN = args.auth_token  # noqa: PLW0603 — module-level main block

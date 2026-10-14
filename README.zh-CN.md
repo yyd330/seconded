@@ -13,7 +13,7 @@
 ## 工作原理
 - **采集：** 通过 HTTPS 使用浏览器麦克风（`getUserMedia`）；还可通过屏幕共享在浏览器内混合*麦克风 + 系统音频*（Chrome 141+）。或上传任意音频/视频文件。
 - **语音识别（可插拔）：** 默认 **Qwen3-ASR 1.7B** 运行于 CPU（约 5 GB 内存，多语言，通过 ForcedAligner 提供单词级时间戳）— 不占用你的 GPU。备选后端：**faster-whisper**（任意 Whisper/CT2 模型：`large-v3`、`distil-*`、量化仓库）。
-- **说话人分离：** resemblyzer 声纹嵌入 + 凝聚聚类（非致命；失败时回退为单一说话人）。
+- **说话人分离：** SpeechBrain ECAPA-TDNN 多语言声纹嵌入 + 自动估计说话人数量的聚类（非致命；失败时回退为单一说话人）。
 - **摘要（可插拔）：** 任何 **OpenAI 兼容本地 API**（LM Studio、llama.cpp、vLLM、Strata、Ollama 的 `/v1` 等）。以会议的主导语言撰写（20+ 种语言；见下文*语言*）。
 
 ## 平台与浏览器支持
@@ -32,7 +32,7 @@
 ## 文件说明
 - `server.py` — Flask 服务器：SSE 实时字幕、音频流接收、文件上传（ffmpeg 提取音频）、最终处理管线、按会话下载（md/pdf/vtt/wav）
 - `asr_engine.py` — 可插拔 ASR 后端：`qwen`（Qwen3-ASR + ForcedAligner）和 `faster-whisper`（任意 Whisper/CT2 模型），API 相同，通过环境变量或命令行参数选择
-- `diarize.py` — 说话人分离（resemblyzer + sklearn 聚类）
+- `diarize.py` — 说话人分离（ECAPA-TDNN 嵌入 + sklearn 聚类；可用 `--diar-backend resemblyzer` 切换为更轻量的英语向后备方案）
 - `summarize.py` — 面向任意 OpenAI 兼容后端的摘要器：7 种模板、语言检测与输出语言规则
 - `report.py` — 转写 + 摘要的 Markdown/PDF 渲染（CJK 字体安全）
 - `static/index.html` — 网页界面（深色主题）：实时字幕、采集控制、上传、会话历史、下载

@@ -17,6 +17,7 @@ faster-whisper>=1.0
 #   ecapa backend (default): SpeechBrain ECAPA-TDNN embeddings (multilingual)
 #   resemblyzer backend: lightweight English-centric fallback
 speechbrain>=1.0        # pulls torch; needed for the default ecapa backend
+silero-vad>=5.0         # voice activity detection for diarization
 resemblyzer==0.1.6
 scikit-learn>=1.3
 

@@ -593,9 +593,15 @@ def _regenerate(d, template=None, length=None):
                     n_spk, dur_s = 1, 0.0
                 _write_summary_file(d, md, lang, n_spk, dur_s, stamp,
                                     template or "default", length or "medium")
+                # a successful regeneration clears any stale error state
+                with session.lock:
+                    if session.status == "error":
+                        session.status = "done"
                 sse_broadcast("status", {"msg": "summary regenerated"})
             except Exception as e:
                 log.exception("regenerate failed")
+                with session.lock:
+                    session.status = "error"
                 sse_broadcast("status", {"msg": f"regeneration failed: {e}"})
 
         threading.Thread(target=work, daemon=True).start()
@@ -1150,6 +1156,8 @@ def history_rediarize(dir):
                 sse_broadcast("status", {"msg": f"speaker detection done: {n_spk} speakers"})
             except Exception as e:
                 log.exception("re-diarize failed")
+                with session.lock:
+                    session.status = "error"
                 sse_broadcast("status", {"msg": f"speaker detection failed: {e}"})
                 return
             # summary needs the new labels — regenerate it too

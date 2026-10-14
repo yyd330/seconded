@@ -13,7 +13,7 @@
 ## 運作原理
 - **擷取：** 透過 HTTPS 使用瀏覽器麥克風（`getUserMedia`）；亦可透過螢幕分享在瀏覽器內混合*麥克風 + 系統音訊*（Chrome 141+）。或上傳任何音訊/視訊檔案。
 - **語音辨識（可插拔）：** 預設 **Qwen3-ASR 1.7B** 執行於 CPU（約 5 GB 記憶體，多語言，透過 ForcedAligner 提供單字級時間戳）— 不佔用您的 GPU。備選後端：**faster-whisper**（任何 Whisper/CT2 模型：`large-v3`、`distil-*`、量化倉庫）。
-- **說話者分離：** SpeechBrain ECAPA-TDNN 多語言聲紋嵌入 + 自動估計說話者數量的聚類（非致命；失敗時回退為單一說話者）。
+- **說話者分離：** silero 語音活動偵測 + SpeechBrain ECAPA-TDNN 多語言聲紋嵌入 + 自動估計說話者數量的聚類（非致命；失敗時回退為單一說話者）。
 - **摘要（可插拔）：** 任何 **OpenAI 相容本地 API**（LM Studio、llama.cpp、vLLM、Strata、Ollama 的 `/v1` 等）。以會議的主導語言撰寫（20+ 種語言；見下文*語言*）。
 
 ## 平台與瀏覽器支援

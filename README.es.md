@@ -13,7 +13,7 @@ Elige una plantilla de resumen por tipo de reunión; los resúmenes se muestran 
 ## Cómo funciona
 - **Captura:** micrófono del navegador (`getUserMedia`) sobre HTTPS; opcionalmente *micrófono + audio del sistema* mezclados en el navegador mediante pantalla compartida (Chrome 141+). O sube cualquier archivo de audio/vídeo.
 - **ASR (intercambiable):** de forma predeterminada **Qwen3-ASR 1.7B** en CPU (~5 GB de RAM, multilingüe, marcas de tiempo por palabra con ForcedAligner) — nunca compite con tu GPU. Backend alternativo: **faster-whisper** (cualquier modelo Whisper/CT2: `large-v3`, `distil-*`, repositorios cuantizados).
-- **Diariización de hablantes:** embeddings multilingües ECAPA-TDNN de SpeechBrain + agrupamiento con estimación automática del número de hablantes (no crítico; recurre a un solo hablante si falla).
+- **Diariización de hablantes:** detección de actividad de voz silero + embeddings multilingües ECAPA-TDNN de SpeechBrain + agrupamiento con estimación automática del número de hablantes (no crítico; recurre a un solo hablante si falla).
 - **Resumen (intercambiable):** cualquier **API local compatible con OpenAI** (LM Studio, llama.cpp, vLLM, Strata, `/v1` de Ollama, ...). Escrito en el idioma dominante de la reunión (más de 20 idiomas; ver *Idiomas* más abajo).
 
 ## Plataformas y navegadores compatibles

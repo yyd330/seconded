@@ -20,9 +20,9 @@ checkbox action items — and regenerate with another template anytime, no re-tr
 - **ASR (pluggable):** default **Qwen3-ASR 1.7B** on CPU (~5 GB RAM, multilingual,
   word timestamps via ForcedAligner) — never fights your GPU. Alternative backend:
   **faster-whisper** (any Whisper/CT2 model: `large-v3`, `distil-*`, quantized repos).
-- **Diarization:** SpeechBrain ECAPA-TDNN multilingual speaker embeddings + clustering
-  with automatic speaker-count estimation (non-fatal;
-  falls back to a single speaker).
+- **Diarization:** silero voice-activity gating + SpeechBrain ECAPA-TDNN multilingual
+  speaker embeddings + clustering with automatic speaker-count estimation
+  (non-fatal; falls back to a single speaker).
 - **Summary (pluggable):** any **OpenAI-compatible local API** (LM Studio, llama.cpp,
   vLLM, Strata, Ollama's `/v1`, ...). Written in the dominant spoken language
   (20+ languages; see *Languages* below).

@@ -12,7 +12,7 @@ Elige una plantilla de resumen por tipo de reunión; los resúmenes se muestran 
 
 ## Cómo funciona
 - **Captura:** micrófono del navegador (`getUserMedia`) sobre HTTPS; opcionalmente *micrófono + audio del sistema* mezclados en el navegador mediante pantalla compartida (Chrome 141+). O sube cualquier archivo de audio/vídeo.
-- **ASR (intercambiable):** de forma predeterminada **Qwen3-ASR 1.7B** en CPU (~5 GB de RAM, multilingüe, marcas de tiempo por palabra con ForcedAligner) — nunca compite con tu GPU. Backend alternativo: **faster-whisper** (cualquier modelo Whisper/CT2: `large-v3`, `distil-*`, repositorios cuantizados).
+- **ASR (intercambiable):** de forma predeterminada **Qwen3-ASR 1.7B** en CPU (~5 GB de RAM, multilingüe, marcas de tiempo por palabra con ForcedAligner) — nunca compite con tu GPU. Backend alternativo: **faster-whisper** (cualquier modelo Whisper/CT2: `large-v3`, `distil-*`, repositorios cuantizados). La transcripción se ejecuta **de forma incremental durante la reunión** (bloques de ~45 s, cada bloque se transcribe una vez y se reutiliza como subtítulo en vivo), así que tras una reunión larga solo esperas el último bloque + diariización + resumen, no toda la grabación.
 - **Diariización de hablantes:** detección de actividad de voz silero + embeddings multilingües ECAPA-TDNN de SpeechBrain + agrupamiento con estimación automática del número de hablantes (no crítico; recurre a un solo hablante si falla).
 - **Resumen (intercambiable):** cualquier **API local compatible con OpenAI** (LM Studio, llama.cpp, vLLM, Strata, `/v1` de Ollama, ...). Escrito en el idioma dominante de la reunión (más de 20 idiomas; ver *Idiomas* más abajo).
 
@@ -93,7 +93,7 @@ Si tu navegador no puede compartir audio del sistema, enruta micrófono + sonido
 ### Durante la reunión
 1. Opcional: pon nombre a la sesión; elige tu dispositivo de entrada.
 2. Empieza con uno de los botones de captura anteriores.
-3. Al terminar, **Finalizar y resumir**: pase final de ASR + alineador (~4× tiempo real en CPU), diariización y luego el resumen del LLM.
+3. Al terminar, **Finalizar y resumir**: se transcribe la cola restante (la mayor parte ya se transcribió durante la reunión), diariización y luego el resumen del LLM.
 4. Aparecen los botones de descarga — cada tipo de contenido (Notas / Transcripción / Resumen) en **Markdown o PDF**, además de VTT y Audio WAV.
 
 ### Idiomas
@@ -131,8 +131,9 @@ Pulsa **↻ Regenerar resumen** en cualquier sesión terminada (actual o del his
 ## Banderas del servidor (`server.py`)
 | Bandera | Comportamiento | Cuándo usarla |
 |---|---|---|
-| *(predeterminado)* | subtítulos en vivo + pase final, un modelo ASR | quieres leer durante la reunión |
-| `--no-live` | sin subtítulos en vivo; solo el pase final al terminar (lo que ejecuta el servicio) | ahorra CPU; revisarás resultados después |
+| *(predeterminado)* | subtítulos en vivo + transcripción incremental durante la reunión | uso normal — la espera más corta después de la reunión |
+| `--no-incremental` | sin trabajo durante la reunión; transcribe todo al terminar | CPU limitada durante la reunión |
+| `--no-live` | sin subtítulos en vivo ni trabajo incremental; solo el pase final al terminar | ahorra toda la CPU durante la reunión |
 | `--file X.wav` | ejecuta el pipeline sobre un archivo local y sale | pruebas |
 | `--asr-backend qwen\|faster-whisper` | elige el backend ASR | predeterminado: `qwen` |
 | `--asr-model ID` | id de repo HF o directorio local para el backend elegido | p. ej. `deepdml/faster-whisper-large-v3-turbo-ct2` |
@@ -164,14 +165,14 @@ Backends de resumen: apunta `--summary-url` a **cualquier** servidor compatible 
 ## Rendimiento (medido con los modelos predeterminados, ASR en CPU)
 | Paso | Velocidad |
 |---|---|
-| Pase final (Qwen3-ASR 1.7B + alineador) | ~4× tiempo real para audio corto; las reuniones largas se dividen automáticamente en trozos de ≤45 s — 2:30 de audio ≈ 30–60 s en total |
+| Transcripción (Qwen3-ASR 1.7B + alineador) | ~1,1× tiempo real en un CPU de 12 núcleos, pero se ejecuta **durante** la reunión en bloques de 45 s — después de la reunión solo esperas la cola sin procesar |
 | Diariización | ~1 s por minuto de audio |
 | Resumen (modelo local clase 30B IQ4 en GPU) | ~10–30 s para una reunión típica; escala con la longitud |
 
-Nota sobre audio largo: Qwen3-ASR se degrada silenciosamente por encima de ~70 s por llamada, así que el backend qwen siempre divide la entrada larga en fronteras de baja energía y vuelve a unir las marcas de tiempo al tiempo global. faster-whisper gestiona audio largo de forma nativa (filtrado VAD, sin divisiones).
+Una reunión de 84 minutos necesitaba antes ~95 min de transcripción posterior; con la transcripción incremental, la misma reunión termina segundos después de que se transcribe el último bloque (más diariización y resumen). El audio largo se divide automáticamente en trozos de ≤45 s — Qwen3-ASR se degrada silenciosamente por encima de ~70 s por llamada, así que el backend qwen siempre divide la entrada larga en fronteras de baja energía y vuelve a unir las marcas de tiempo al tiempo global. faster-whisper gestiona audio largo de forma nativa (filtrado VAD, sin divisiones).
 
 ## Notas / limitaciones conocidas
-- **El pase final es en lo que debes confiar**; los subtítulos en vivo son una vista previa de ventana móvil.
+- Los subtítulos en vivo **son** la transcripción real: cada bloque se transcribe una vez y el pase final la reutiliza (ya no hay una pasada de vista previa de menor calidad).
 - La calidad de la diariización depende de la separación del audio; el habla superpuesta puede etiquetarse mal. Las reuniones de un solo hablante son trivialmente correctas.
 - El generador de resúmenes habla con el backend en `SUMMARY_API_URL` (ver *Elección de modelos* arriba).
 - Los modelos se almacenan en caché en `~/.cache/huggingface/` tras la primera descarga.

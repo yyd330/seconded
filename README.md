@@ -20,6 +20,9 @@ checkbox action items — and regenerate with another template anytime, no re-tr
 - **ASR (pluggable):** default **Qwen3-ASR 1.7B** on CPU (~5 GB RAM, multilingual,
   word timestamps via ForcedAligner) — never fights your GPU. Alternative backend:
   **faster-whisper** (any Whisper/CT2 model: `large-v3`, `distil-*`, quantized repos).
+  Transcription runs **incrementally during the meeting** (blocks of ~45 s, each
+  transcribed once and reused as live subtitles), so after a long meeting you wait
+  only for the last block + diarization + summary instead of the whole recording.
 - **Diarization:** silero voice-activity gating + SpeechBrain ECAPA-TDNN multilingual
   speaker embeddings + clustering with automatic speaker-count estimation
   (non-fatal; falls back to a single speaker).
@@ -123,8 +126,8 @@ devices so one input already contains both — then plain **🎙 Mic** is all yo
 ### Running a meeting
 1. Optionally set a session name; pick your input device.
 2. Start with one of the capture buttons above.
-3. When done, **End & summarize**: final ASR pass + aligner (~4× realtime on CPU),
-   diarization, then the LLM summary.
+3. When done, **End & summarize**: the tail of the ASR (most was transcribed during
+   the meeting), diarization, then the LLM summary.
 4. Download buttons appear — each content type (Notes / Transcript / Summary) as
    **Markdown or PDF**, plus VTT and Audio WAV.
 
@@ -186,8 +189,9 @@ a different template — no re-transcription.
 ## Server flags (`server.py`)
 | Flag | Behavior | When to use |
 |---|---|---|
-| *(default)* | live subtitles + final pass, one ASR model | you want to read along during the meeting |
-| `--no-live` | no live subtitles; only the final pass at end (what the service runs) | saves CPU; you'll check results afterwards |
+| *(default)* | live subtitles + incremental transcription during the meeting | normal use — shortest wait after the meeting |
+| `--no-incremental` | no work during the meeting; transcribe everything after it ends | weak/loaded CPU during the meeting |
+| `--no-live` | no live subtitles and no incremental work; only the final pass at end | saves all CPU during the meeting |
 | `--file X.wav` | run the pipeline on a local file and exit | testing |
 | `--asr-backend qwen\|faster-whisper` | choose the ASR backend | default: `qwen` |
 | `--asr-model ID` | HF repo id or local dir for the chosen backend | e.g. `deepdml/faster-whisper-large-v3-turbo-ct2` |
@@ -226,16 +230,20 @@ if not). Reasoning models are handled: `reasoning_content` is used when
 ## Performance (measured on default models, CPU ASR)
 | Step | Speed |
 |---|---|
-| Final pass (Qwen3-ASR 1.7B + aligner) | ~4× realtime for short audio; long meetings are auto-chunked into ≤45 s pieces — 2:30 of audio ≈ 30–60 s total |
+| Transcription (Qwen3-ASR 1.7B + aligner) | ~1.1× realtime on a 12-core CPU, but it runs **during** the meeting in 45 s blocks — post-meeting wait is only the unprocessed tail |
 | Diarization | ~1 s per minute of audio |
 | Summary (local 30B-class IQ4 model on GPU) | ~10–30 s for a typical meeting; scales with length |
 
-Long-audio note: Qwen3-ASR silently degrades past ~70 s in one call, so the qwen backend
-always splits longer input at low-energy boundaries and merges word timestamps back to
-global time. faster-whisper handles long audio natively (VAD-filtered, no splitting).
+An 84-minute meeting previously needed ~95 min of post-meeting transcription; with
+incremental transcription the same meeting finishes seconds after the last block is
+transcribed (plus diarization + summary). Long audio is auto-chunked into ≤45 s pieces —
+Qwen3-ASR silently degrades past ~70 s in one call, so the qwen backend always splits
+longer input at low-energy boundaries and merges word timestamps back to global time.
+faster-whisper handles long audio natively (VAD-filtered, no splitting).
 
 ## Notes / known limits
-- The **final pass is what you should trust**; live subtitles are a rolling-window preview.
+- Live subtitles **are** the real transcript: each block is transcribed once and reused
+  by the final pass (no separate lower-quality preview pass anymore).
 - Diarization quality depends on audio separation; overlapping speech can mislabel.
   Single-speaker meetings are trivially correct.
 - The summarizer talks to the backend at `SUMMARY_API_URL` (see *Choosing models* above).

@@ -68,14 +68,16 @@ from summarize import summarize, LMSTUDIO_TIMEOUT
 import report
 
 SR = 16000
-LIVE_WINDOW_S = 12      # rolling window for live subtitles
-LIVE_MIN_NEW_S = 4      # only re-transcribe after this much new audio
+LIVE_WINDOW_S = 12      # rolling window for live subtitles (demo mode)
 OUTPUT_ROOT = os.path.expanduser(
     os.environ.get("MEETINGS_OUTPUT_DIR", "~/.local/share/seconded/meetings"))
 
 # Live-subtitle mode: "final" (default — the configured ASR model does live +
 # final) or None (--no-live).
 LIVE_MODE = "final"
+# Pre-transcribe the meeting in blocks while it runs (subtitles come from the
+# same pass; the post-meeting wait shrinks to tail + diarization + summary).
+INCREMENTAL = True
 DIAR_BACKEND = os.environ.get("DIAR_BACKEND", "ecapa")  # ecapa | resemblyzer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s",
@@ -189,6 +191,12 @@ class Session:
         self.ingest_bytes = 0        # bytes received via /ingest (diagnostics)
         self.last_ingest_at = None   # monotonic time of last ingest chunk
         self.abort_event = threading.Event()   # set by POST /cancel → stop processing
+        # incremental transcription: blocks finished while the meeting runs,
+        # so the post-meeting wait is only the tail + diarization + summary
+        self.transcript_blocks = []  # [{start, lang, text, items}]
+        self.blocks_done = 0         # samples fully transcribed
+        self.worker_done = threading.Event()
+        self.worker_done.set()       # set = no worker pending; cleared on start
 
     def push(self, pcm_bytes: bytes):
         arr = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
@@ -241,32 +249,68 @@ def speaker_color(k: int) -> str:
 
 # ---------------------------------------------------------------- live loop
 
-def live_loop():
-    """Periodically transcribe the rolling window for subtitles."""
-    while session.status == "live":
-        time.sleep(3)
-        if engine.model is None:
-            continue
+def _transcribe_block(chunk: np.ndarray, sr: int):
+    """Transcribe one <=45 s block with timestamps via the engine facade.
+    Returns (lang, text, items)."""
+    lang, text, items = engine.transcribe_with_timestamps(chunk, sr)
+    return lang or "", text or "", list(items or [])
+
+
+def worker_loop():
+    """Incremental transcription: transcribe the audio in ~45 s blocks as it
+    arrives, so the post-meeting wait is only the unprocessed tail. Each
+    finished block doubles as the live subtitle (one ASR pass does both)."""
+    BLOCK_S = 45.0
+    last_progress = 0.0
+    try:
+        _worker_body(BLOCK_S, last_progress)
+    finally:
+        session.worker_done.set()
+
+
+def _worker_body(BLOCK_S, last_progress):
+    while True:
+        if session.abort_event.is_set():
+            break
+        live = session.status == "live"
         total = session.total_samples
-        t_end = total / SR
-        # need enough new audio since last pass
-        if (total - session.last_live_at) < LIVE_MIN_NEW_S * SR:
+        done = session.blocks_done
+        if total - done < int(3 * SR) and not live:
+            break
+        if total - done < int(BLOCK_S * SR) and live:
+            time.sleep(1)
             continue
-        win_start = max(0, int((t_end - LIVE_WINDOW_S) * SR))
+        if engine.model is None:
+            if not live:
+                break
+            time.sleep(2)
+            continue
         with session.lock:
-            buf = np.array(session.buffer, dtype=np.float32)
-        chunk = buf[win_start:]
-        if len(chunk) < 1.5 * SR:
-            continue
+            buf = np.array(session.buffer, dtype=np.float32)[done:]
+        take = min(len(buf), int(BLOCK_S * SR))
+        chunk = buf[:take]
         try:
-            lang, text = engine.transcribe(chunk, SR)
-            text = " ".join(text.split())
-            session.last_live_at = total
-            sse_broadcast("live", {"text": text or "(listening…)",
-                                   "t": round(t_end, 1)})
+            lang, text, items = _transcribe_block(chunk, SR)
+            base = done / SR
+            for it in items:
+                it.start_time = round(it.start_time + base, 2)
+                it.end_time = round(it.end_time + base, 2)
+            session.transcript_blocks.append(
+                {"start": base, "lang": lang, "text": text, "items": items})
+            session.blocks_done = done + take
+            if text and LIVE_MODE is not None:
+                sse_broadcast("live", {"text": " ".join(text.split()),
+                                       "t": round((done + take) / SR, 1)})
         except Exception as e:
-            log.exception("live transcribe failed")
+            log.exception("incremental transcribe failed")
             sse_broadcast("status", {"msg": f"live ASR error: {e}"})
+            time.sleep(5)
+        now = time.time()
+        if now - last_progress >= 30:
+            last_progress = now
+            sse_broadcast("status", {
+                "msg": f"transcribed {session.blocks_done / SR / 60:.0f} of "
+                       f"{session.total_samples / SR / 60:.0f} min"})
 
 
 # ---------------------------------------------------------------- final pass
@@ -315,7 +359,6 @@ def final_pass():
     if session.abort_event.is_set():
         _finish_cancelled()
         return
-    sse_broadcast("status", {"msg": "final pass: transcribing…"})
     audio = session.audio()
     if len(audio) < SR:
         session.status = "error"
@@ -329,9 +372,36 @@ def final_pass():
         sse_broadcast("status", {"msg": msg})
         return
 
-    lang, text, timestamps = engine.transcribe_with_timestamps(audio, SR, language=None)
+    # incremental worker: wait for it to drain, then transcribe the tail.
+    # (With --no-live/--no-incremental there are no blocks; the tail is all of it.)
+    sse_broadcast("status", {"msg": "finishing transcription…"})
+    session.worker_done.wait(timeout=6 * 3600)
+    done = session.blocks_done
+    tail = audio[done:]
+    blocks = list(session.transcript_blocks)
+    if len(tail) >= int(1.0 * SR):
+        sse_broadcast("status", {"msg": f"transcribing last "
+                                        f"{len(tail)/SR:.0f}s…"})
+        t_tail = time.time()
+        lang_t, text_t, items_t = engine.transcribe_with_timestamps(tail, SR)
+        items_t = list(items_t or [])
+        for it in items_t:
+            it.start_time = round(it.start_time + done / SR, 2)
+            it.end_time = round(it.end_time + done / SR, 2)
+        blocks.append({"start": done / SR, "lang": lang_t, "text": text_t,
+                       "items": items_t})
+        timings["tail_s"] = round(time.time() - t_tail, 1)
+    langs = [b["lang"] for b in blocks if b.get("lang")]
+    try:
+        from qwen_asr.inference.utils import merge_languages
+        lang = merge_languages(langs) if langs else ""
+    except ImportError:
+        lang = max(set(langs), key=langs.count) if langs else ""
+    text = " ".join(b["text"] for b in blocks if b["text"])
+    timestamps = [it for b in blocks for it in b["items"]]
     timings["transcription_s"] = round(time.time() - t0, 1)
-    log.info("final transcript: %d chars in %.1fs", len(text), time.time() - t0)
+    log.info("final transcript: %d chars in %.1fs (%d incremental blocks)",
+             len(text), time.time() - t0, len(blocks))
 
     # build segments from aligner timestamps (word/char level -> merge to ~sentence lines)
     segs = []
@@ -640,16 +710,18 @@ def start():
 
     def boot():
         try:
-            if LIVE_MODE == "final":
-                # one model for everything: does both live and final
+            # the incremental worker does live subtitles AND pre-transcribes
+            # blocks so the post-meeting wait shrinks to tail + diarize + summary
+            if LIVE_MODE == "final" or INCREMENTAL:
                 if engine.model is None:
                     sse_broadcast("status", {"msg": f"loading ASR ({engine.description})…"})
                     engine.load_final()
             # LIVE_MODE == None → no live subtitles, just buffer audio
             session.status = "live"
             sse_broadcast("status", {"msg": "listening — stream audio to /ingest"})
-            if LIVE_MODE is not None:
-                threading.Thread(target=live_loop, daemon=True).start()
+            if LIVE_MODE is not None or INCREMENTAL:
+                session.worker_done.clear()
+                threading.Thread(target=worker_loop, daemon=True).start()
         except Exception as e:
             log.exception("boot failed")
             session.status = "error"
@@ -751,7 +823,7 @@ def reset():
     if session.status == "finalizing":
         return jsonify({"error": "a final pass is running — wait for it or use End"}), 409
     if session.status in ("live", "loading"):
-        # flip status first so ingest/live_loop stop touching it, then clear
+        # flip status first so ingest/worker_loop stop touching it, then clear
         session.status = "idle"
     session.__init__()
     sse_broadcast("status", {"msg": "reset — ready for a new session"})
@@ -1245,11 +1317,16 @@ def run_file(path: str, source_name: str = None, live_step_s: int = 8):
     label = source_name or os.path.basename(path)
     session.status = "live"
     sse_broadcast("status", {"msg": f"{label}: {len(data)/SR:.1f}s of audio loaded"})
-    if LIVE_MODE == "final" and engine.model is None:
+    if (LIVE_MODE == "final" or INCREMENTAL) and engine.model is None:
         engine.load_final()
-    # simulate live subtitles for the demo, then final pass
-    step = int(live_step_s * SR)
-    if LIVE_MODE is not None:
+    if INCREMENTAL:
+        # real incremental pass: every block is transcribed once, live events
+        # come from the same pass, final_pass only waits for the last blocks
+        session.worker_done.clear()
+        threading.Thread(target=worker_loop, daemon=True).start()
+    elif LIVE_MODE is not None:
+        # simulate live subtitles for the demo, then final pass
+        step = int(live_step_s * SR)
         for i in range(0, len(data), step):
             if session.abort_event.is_set():
                 _finish_cancelled()
@@ -1280,6 +1357,9 @@ if __name__ == "__main__":
                          "browser mic capture from other devices)")
     ap.add_argument("--no-live", action="store_true",
                     help="skip live subtitles entirely; only run the final pass at end")
+    ap.add_argument("--no-incremental", action="store_true",
+                    help="disable incremental (during-meeting) transcription; transcribe "
+                         "everything after the meeting ends instead (slower overall)")
     ap.add_argument("--diar-backend", choices=["ecapa", "resemblyzer"],
                     default=os.environ.get("DIAR_BACKEND", "ecapa"),
                     help="speaker diarization backend (default: ecapa; env DIAR_BACKEND). "
@@ -1317,6 +1397,9 @@ if __name__ == "__main__":
 
     if args.no_live:
         LIVE_MODE = None
+        INCREMENTAL = False   # --no-live means: no CPU work during the meeting
+    if args.no_incremental:
+        INCREMENTAL = False
 
     engine.configure(backend=args.asr_backend, model=args.asr_model,
                      aligner=args.asr_aligner, device=args.asr_device)

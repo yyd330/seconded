@@ -36,10 +36,11 @@ import numpy as np
 
 log = logging.getLogger("diar")
 
-MAX_SPEAKERS = 8
+MAX_SPEAKERS = 10
 _MIN_CHUNK_S = 1.5
 _MAX_CHUNK_S = 8.0
 _SILHOUETTE_MIN = 0.18   # best score below this -> single speaker
+_SILHOUETTE_TIE = 0.015  # within this of the best, prefer more speakers
 _TINY_CLUSTER = 0.03     # clusters below 3% of chunks are noise
 _CENTROID_MERGE = 0.85   # merge centroids whose cosine sim exceeds this
 
@@ -155,16 +156,21 @@ def _cluster_labels(En: np.ndarray):
         return np.zeros(n, dtype=int), 1
     D = cosine_distances(En)
     kmax = min(MAX_SPEAKERS, max(2, n // 25))
-    best_k, best_sc, best_lab = 1, -1.0, None
+    scored = []
     for kk in range(2, kmax + 1):
         lab = AgglomerativeClustering(n_clusters=kk, metric="precomputed",
                                       linkage="average").fit_predict(D)
         sc = silhouette_score(D, lab, metric="precomputed")
         log.info("k=%d silhouette=%.3f", kk, sc)
-        if sc > best_sc:
-            best_k, best_sc, best_lab = kk, sc, lab
-    if best_k < 2 or best_lab is None or best_sc < _SILHOUETTE_MIN:
+        scored.append((kk, sc, lab))
+    best_sc = max(sc for _, sc, _ in scored)
+    if best_sc < _SILHOUETTE_MIN:
         return np.zeros(n, dtype=int), 1
+    # silhouette saturates once every minor speaker forms their own cluster;
+    # among near-ties prefer the largest k so quiet speakers keep their own
+    # label instead of being absorbed by a dominant speaker's blob.
+    near = [(kk, sc, lab) for kk, sc, lab in scored if sc >= best_sc - _SILHOUETTE_TIE]
+    best_k, _, best_lab = max(near, key=lambda t: t[0])
 
     # drop noise clusters, reassign their windows to the nearest big centroid
     sizes = np.bincount(best_lab, minlength=best_k)

@@ -84,7 +84,11 @@ def _model_resident() -> bool:
 
 
 def ensure_model_loaded():
-    """Make sure the pinned model is resident on the backend."""
+    """Make sure the pinned model is resident on the backend.
+
+    Non-LM-Studio backends (llama.cpp, vLLM, Strata, ...) may still be
+    auto-loading the model, so poll briefly before giving up.
+    """
     if _model_resident():
         return True
     if _is_lm_studio():
@@ -94,10 +98,54 @@ def ensure_model_loaded():
                        capture_output=True, timeout=300)
         time.sleep(5)
         return True
+    # the backend may be (re)loading the model right now — give it a chance
+    deadline = time.time() + int(os.environ.get("SUMMARY_LOAD_WAIT", "120"))
+    while time.time() < deadline:
+        time.sleep(5)
+        if _model_resident():
+            log.info("model %s became resident", MODEL)
+            return True
     raise RuntimeError(
         f"model {MODEL!r} is not loaded on the backend at {_models_url()}. "
         "Start the backend with the model resident, or point "
         "SUMMARY_API_URL/SUMMARY_MODEL at a loaded model.")
+
+
+# transient backend failures worth retrying: eviction/reload/queue-full windows
+_RETRY_STATUS = (502, 503, 504)
+_RETRY_ATTEMPTS = int(os.environ.get("SUMMARY_RETRIES", "4"))
+
+
+def _post_chat(payload: dict, timeout: int) -> dict:
+    """POST a chat completion, retrying transient backend failures.
+
+    Local backends answer 503 while a model is being (re)loaded or another
+    request holds the GPU; a short backoff usually rides that out.
+    """
+    last_err = None
+    for attempt in range(1, _RETRY_ATTEMPTS + 1):
+        try:
+            r = requests.post(LMSTUDIO_URL, json=payload, timeout=timeout)
+            if r.status_code in _RETRY_STATUS and attempt < _RETRY_ATTEMPTS:
+                wait = 15 * attempt
+                log.warning("backend returned %d (attempt %d/%d); retrying in %ds",
+                            r.status_code, attempt, _RETRY_ATTEMPTS, wait)
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.Timeout:
+            raise RuntimeError(f"summary backend timed out after {timeout}s")
+        except requests.exceptions.ConnectionError as e:
+            last_err = e
+            if attempt < _RETRY_ATTEMPTS:
+                wait = 15 * attempt
+                log.warning("backend unreachable (attempt %d/%d): %s; retrying in %ds",
+                            attempt, _RETRY_ATTEMPTS, e, wait)
+                time.sleep(wait)
+                continue
+            raise RuntimeError(f"Cannot connect to summary backend at {LMSTUDIO_URL}")
+    raise RuntimeError(f"summary backend kept failing: {last_err}")
 
 
 def _extract_text(payload: dict) -> str:
@@ -593,18 +641,15 @@ def summarize(transcript_text: str, language=None, template="default", length="m
         timeout = int(os.environ.get("SUMMARIZE_TIMEOUT", "3600"))
         max_tokens = int(os.environ.get("SUMMARIZE_MAX_TOKENS", "16384"))
         try:
-            r = requests.post(LMSTUDIO_URL, json={
+            payload = _post_chat({
                 "model": MODEL,
                 "messages": msgs,
                 "temperature": 0.2,
                 "max_tokens": max_tokens,
             }, timeout=timeout)
-            r.raise_for_status()
-        except requests.exceptions.Timeout:
-            raise RuntimeError(f"summary backend timed out after {timeout}s")
         except requests.exceptions.ConnectionError:
             raise RuntimeError(f"Cannot connect to summary backend at {LMSTUDIO_URL}")
-        text = _extract_text(r.json())
+        text = _extract_text(payload)
         log.info("chunk %d done in %.1fs", i + 1, time.time() - t0)
         parts.append(text)
 
@@ -617,16 +662,13 @@ def summarize(transcript_text: str, language=None, template="default", length="m
                      "partials):\n\n" + "\n\n---\n\n".join(parts))
     timeout = int(os.environ.get("SUMMARIZE_TIMEOUT", "3600"))
     try:
-        r = requests.post(LMSTUDIO_URL, json={
+        payload = _post_chat({
             "model": MODEL,
             "messages": [{"role": "system", "content": system_prompt},
                          {"role": "user", "content": merged_prompt}],
             "temperature": 0.2,
             "max_tokens": int(os.environ.get("SUMMARIZE_MAX_TOKENS", "16384")),
         }, timeout=timeout)
-        r.raise_for_status()
-    except requests.exceptions.Timeout:
-        raise RuntimeError(f"summary backend timed out after {timeout}s during merge")
     except requests.exceptions.ConnectionError:
         raise RuntimeError(f"Cannot connect to summary backend at {LMSTUDIO_URL}")
-    return _extract_text(r.json())
+    return _extract_text(payload)

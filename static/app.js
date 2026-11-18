@@ -87,7 +87,7 @@ async function loadSettings(){
   } catch(e){}
 }
 function fillSel(sel, items){
-  const el = $(sel); el.innerHTML='';
+  const el = $(sel); el.replaceChildren();
   for(const it of items){
     const o = document.createElement('option');
     o.value = it.id; o.textContent = I18N.Ttpl(it.id, it.label); el.appendChild(o);
@@ -114,7 +114,7 @@ function renderSidebar(){
   const list = $('#sidebar-list');
   const q = ($('#sess-filter').value || '').trim().toLowerCase();
   const shown = q ? SESSIONS.filter(s => (s.name || s.dir).toLowerCase().includes(q)) : SESSIONS;
-  list.innerHTML = '';
+  list.replaceChildren();
   if(!SESSIONS.length){
     list.innerHTML = `<div class="empty" style="padding:20px 0;font-size:13px">${escapeHtml(T('no_sessions'))}</div>`;
     return;
@@ -209,7 +209,8 @@ async function viewSession(dir, name){
       <div class="md">${mdToHtml(d.summary)}</div>`;
   }
   $('#m-body').innerHTML = html || `<div class="empty">${escapeHtml(T('no_transcript_data'))}</div>`;
-  $('#modal').classList.add('open');
+  const m = $('#modal');
+  if (!m.open) m.showModal();
 }
 
 // ---------- tiny markdown renderer (headings, bold, lists, checkboxes) ----------
@@ -268,11 +269,11 @@ function onRegenDone(){
   const dir = regenWatch.dir; regenWatch = null;
   viewSession(dir, '');
 }
-function closeModal(){ $('#modal').classList.remove('open'); }
+function closeModal(){ const m = $('#modal'); if (m.open) m.close(); }
 
 // ---------- keyboard shortcuts ----------
 document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && $('#modal').classList.contains('open')) closeModal();
+  // (native <dialog> already closes the modal on Escape)
   if (ev.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)){
     ev.preventDefault(); $('#sess-filter').focus();
   }
@@ -291,7 +292,7 @@ async function listMicDevices(){
       inputs = devs.filter(d => d.kind === 'audioinput');
     }
     const prev = sel.value;
-    sel.innerHTML = '';
+    sel.replaceChildren();
     if (!inputs.length){ sel.innerHTML = `<option value="">${escapeHtml(T('no_mic'))}</option>`; return; }
     for (const d of inputs){
       const o = document.createElement('option');
@@ -324,14 +325,21 @@ async function grantMic(){
 // ---------- mic capture ----------
 let audioCtx=null, procNode=null, mediaStream=null, mixGain=null;
 let sysStream=null, sysSrc=null;
+let workletReady=null;   // cached addModule() result (true/false)
 
-function makePipeline(){
+function ensureWorklet(ctx){
+  if (workletReady === null){
+    workletReady = ctx.audioWorklet
+      ? ctx.audioWorklet.addModule('static/worklet-processor.js').then(()=>true).catch(()=>false)
+      : Promise.resolve(false);
+  }
+  return workletReady;
+}
+
+async function makePipeline(){
   audioCtx = new AudioContext({sampleRate:16000});
   mixGain = audioCtx.createGain();
-  procNode = audioCtx.createScriptProcessor(4096, 1, 1);
-  let meterTick = 0;
-  procNode.onaudioprocess = (ev) => {
-    const f32 = ev.inputBuffer.getChannelData(0);
+  const onChunk = (f32) => {
     if ((meterTick++ & 7) === 0){
       let sum=0; for(let i=0;i<f32.length;i+=16) sum += f32[i]*f32[i];
       const rms = Math.sqrt(sum/(f32.length/16));
@@ -342,6 +350,16 @@ function makePipeline(){
     for(let i=0;i<f32.length;i++){ let v=Math.max(-1,Math.min(1,f32[i])); i16[i]=v<0?v*32768:v*32767; }
     fetch('/ingest',{method:'POST', body:i16.buffer}).catch(()=>{});
   };
+  let meterTick = 0;
+  if (await ensureWorklet(audioCtx)){
+    // audio-thread capture: survives background-tab throttling, no main-thread jank
+    procNode = new AudioWorkletNode(audioCtx, 'pcm-tee');
+    procNode.port.onmessage = (ev) => onChunk(ev.data.pcm);
+  } else {
+    // fallback for engines without AudioWorklet (the legacy path, main thread)
+    procNode = audioCtx.createScriptProcessor(4096, 1, 1);
+    procNode.onaudioprocess = (ev) => onChunk(ev.inputBuffer.getChannelData(0));
+  }
   mixGain.connect(procNode); procNode.connect(audioCtx.destination);
 }
 
@@ -396,7 +414,7 @@ async function startCapture(withSystem){
     try { mediaStream = await navigator.mediaDevices.getUserMedia({audio:true}); }
     catch(e2){ setStatus(T('mic_denied')+e2.message); return; }
   }
-  makePipeline(); attachMic();
+  await makePipeline(); attachMic();
   const devName = $('#micdev').selectedOptions[0];
   let label = T('recording_from', {dev: devName ? devName.textContent : T('from_mic')});
   if (withSystem){

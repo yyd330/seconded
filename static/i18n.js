@@ -571,7 +571,7 @@
   function initLangSelect() {
     const sel = document.getElementById("langsel");
     if (!sel) return;
-    sel.innerHTML = "";
+    sel.replaceChildren();
     for (const code of ["en", "zh", "zh-TW", "es"]) {
       const o = document.createElement("option");
       o.value = code; o.textContent = I18N[code]._name;
